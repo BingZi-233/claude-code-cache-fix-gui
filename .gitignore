@@ -1,0 +1,8 @@
+node_modules/
+ui-src/node_modules/
+.cache/
+src-tauri/target/
+dist-tauri/
+dist-windows/
+*.log
+.superpowers/

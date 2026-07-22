@@ -3,12 +3,28 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Desktop GUI for claude-code-cache-fix (pure logic + Tauri shell)",
+  "description": "Desktop GUI for claude-code-cache-fix (control panel + Tauri shell)",
   "engines": {
     "node": ">=18"
   },
-  "scripts": {
-    "test": "node --test"
+  "bin": {
+    "cache-fix-gui": "./bin/cache-fix-gui.mjs"
   },
-  "license": "MIT"
+  "scripts": {
+    "test": "node --test",
+    "ui:dev": "npm --prefix ui-src run dev",
+    "ui:build": "npm --prefix ui-src run build",
+    "start": "node ./bin/cache-fix-gui.mjs panel",
+    "panel": "node ./bin/cache-fix-gui.mjs panel",
+    "panel:no-open": "CACHE_FIX_GUI_NO_OPEN=1 node ./bin/cache-fix-gui.mjs panel",
+    "status": "node ./bin/cache-fix-gui.mjs status",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BingZi-233/claude-code-cache-fix-gui.git"
+  }
 }

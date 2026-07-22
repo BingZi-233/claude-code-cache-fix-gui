@@ -52,4 +52,40 @@ describe("buildProxySpawnEnv", () => {
   it("requires effectiveConfigRoot", () => {
     assert.throws(() => buildProxySpawnEnv({ effectiveConfigRoot: "" }));
   });
+
+  it("merges extraEnv (user proxyEnv) into child env", () => {
+    const env = buildProxySpawnEnv({
+      port: 9801,
+      mode: "reverse",
+      effectiveConfigRoot: root,
+      extraEnv: {
+        CACHE_FIX_PROXY_UPSTREAM: "http://127.0.0.1:8080",
+        CACHE_FIX_DEBUG: "1",
+        HTTPS_PROXY: "http://corp:3128",
+      },
+    });
+    assert.equal(env.CACHE_FIX_PROXY_UPSTREAM, "http://127.0.0.1:8080");
+    assert.equal(env.CACHE_FIX_DEBUG, "1");
+    assert.equal(env.HTTPS_PROXY, "http://corp:3128");
+    assert.equal(env.CACHE_FIX_PROXY_PORT, "9801");
+  });
+
+  it("mode wins over extraEnv for CACHE_FIX_FORWARD_PROXY", () => {
+    const env = buildProxySpawnEnv({
+      mode: "reverse",
+      effectiveConfigRoot: root,
+      extraEnv: { CACHE_FIX_FORWARD_PROXY: "on" },
+    });
+    assert.equal(env.CACHE_FIX_FORWARD_PROXY, undefined);
+  });
+
+  it("skips empty extraEnv values", () => {
+    const env = buildProxySpawnEnv({
+      effectiveConfigRoot: root,
+      extraEnv: { CACHE_FIX_PROXY_UPSTREAM: "", CACHE_FIX_DEBUG: "1" },
+    });
+    assert.equal(env.CACHE_FIX_PROXY_UPSTREAM, undefined);
+    assert.equal(env.CACHE_FIX_DEBUG, "1");
+  });
+
 });

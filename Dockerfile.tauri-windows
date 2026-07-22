@@ -1,0 +1,64 @@
+# Cross-compile Tauri 2 Windows .exe from Linux (cargo-xwin + NSIS)
+# syntax=docker/dockerfile:1.6
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV CARGO_HOME=/usr/local/cargo
+ENV PATH=/usr/local/cargo/bin:$PATH
+# cargo-xwin stores MSVC CRT / Windows SDK here (BuildKit cache-mounted below)
+ENV XWIN_CACHE_DIR=/xwin-cache
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    build-essential \
+    pkg-config \
+    file \
+    nsis \
+    clang \
+    lld \
+    llvm \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust + Windows MSVC target
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
+    && rustup target add x86_64-pc-windows-msvc \
+    && rustc --version && cargo --version
+
+# cargo-xwin (downloads Windows SDK) + tauri-cli
+RUN cargo install --locked cargo-xwin \
+    && cargo install --locked tauri-cli --version "^2"
+
+WORKDIR /app
+COPY . /app
+
+WORKDIR /app/src-tauri
+
+# Produce raw .exe only. NSIS bundler panics on Linux host without appindicator
+# even when targeting Windows; --no-bundle skips that path.
+#
+# BuildKit cache mounts:
+#   /xwin-cache  — MSVC CRT + Windows SDK (avoids "Downloading MSVC CRT" every build)
+#   /usr/local/cargo/registry — crates.io downloads
+#   target       — rustc incremental / rlib cache for this project
+RUN --mount=type=cache,id=cache-fix-gui-xwin,target=/xwin-cache \
+    --mount=type=cache,id=cache-fix-gui-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=cache-fix-gui-cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=cache-fix-gui-target-win,target=/app/src-tauri/target \
+    bash -lc '\
+  set -euo pipefail; \
+  mkdir -p /xwin-cache; \
+  cargo tauri build \
+    --runner cargo-xwin \
+    --target x86_64-pc-windows-msvc \
+    --no-bundle \
+    2>&1 | tee /tmp/tauri-win-build.log; \
+  status=${PIPESTATUS[0]}; \
+  # target/ is a cache mount — copy exe out of it before the mount unbinds
+  mkdir -p /out; \
+  cp -v /app/src-tauri/target/x86_64-pc-windows-msvc/release/cache-fix-gui.exe /out/; \
+  ls -lah /out; \
+  exit $status \
+'

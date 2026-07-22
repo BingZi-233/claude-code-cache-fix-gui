@@ -1,0 +1,6 @@
+.git
+dist-tauri
+**/target
+**/node_modules
+*.log
+.DS_Store

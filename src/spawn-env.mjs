@@ -23,6 +23,7 @@ import { validatePort, DEFAULT_PORT } from "./settings-env.mjs";
  *   effectiveConfigRoot: string,
  *   caDir?: string,
  *   baseEnv?: Record<string, string | undefined>,
+ *   extraEnv?: Record<string, string | undefined>,
  * }} opts
  * @returns {Record<string, string>}
  */
@@ -32,6 +33,7 @@ export function buildProxySpawnEnv({
   effectiveConfigRoot,
   caDir,
   baseEnv = {},
+  extraEnv = {},
 }) {
   if (typeof effectiveConfigRoot !== "string" || effectiveConfigRoot.trim() === "") {
     throw new Error("effectiveConfigRoot is required");
@@ -50,14 +52,21 @@ export function buildProxySpawnEnv({
     if (typeof v === "string") env[k] = v;
   }
 
+  // User config (proxyEnv) overrides baseEnv but not core keys below.
+  for (const [k, v] of Object.entries(extraEnv)) {
+    if (v === undefined || v === null || v === "") continue;
+    env[k] = String(v);
+  }
+
   env.CACHE_FIX_PROXY_PORT = portStr;
   env.CLAUDE_CONFIG_DIR = path.normalize(effectiveConfigRoot);
   env.CACHE_FIX_CA_DIR = resolvedCaDir;
 
+  // Mode always wins over extraEnv for FORWARD_PROXY.
   if (mode === "forward") {
     env.CACHE_FIX_FORWARD_PROXY = "on";
   } else {
-    // Ensure reverse spawn does not inherit a stale forward flag from baseEnv.
+    // Ensure reverse spawn does not inherit a stale forward flag from baseEnv/extraEnv.
     delete env.CACHE_FIX_FORWARD_PROXY;
   }
 
