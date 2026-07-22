@@ -1,0 +1,14 @@
+{
+  "name": "claude-code-cache-fix-gui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Desktop GUI for claude-code-cache-fix (pure logic + Tauri shell)",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT"
+}
