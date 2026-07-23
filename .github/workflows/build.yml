@@ -16,6 +16,8 @@ concurrency:
 
 env:
   JAVA_VERSION: "17"
+  # Write Gradle caches on main + tags; PRs only restore (faster + less cache thrash)
+  GRADLE_CACHE_READ_ONLY: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -30,14 +32,28 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
+          # Do NOT set cache: gradle here — gradle/actions/setup-gradle owns Gradle User Home
 
-      - name: Set up Gradle
+      - name: Set up Gradle (cache write on main/tags)
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ env.GRADLE_CACHE_READ_ONLY }}
+          cache-cleanup: on-success
+          # caches = deps + build-cache; wrapper = Gradle distribution
+          gradle-home-cache-includes: |
+            caches
+            notifications
+            wrapper
 
-      - name: Unit tests
+      - name: Unit tests + warm dependency cache
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon :shared:allTests :desktop:test --stacktrace
+          # Resolve/print deps so Linux PE packaging reuses the same User Home cache
+          ./gradlew --no-daemon \
+            :shared:allTests \
+            :desktop:test \
+            :desktop:dependencies \
+            --stacktrace
 
   windows:
     name: Package Windows (PE)
@@ -53,8 +69,12 @@ jobs:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
 
-      - name: Set up Gradle
+      # Same OS as test — restore only to avoid overwriting the warmed Linux cache entry
+      - name: Set up Gradle (cache read-only)
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+          cache-cleanup: never
 
       - name: Install MinGW (cross PE linker)
         run: |
@@ -106,8 +126,12 @@ jobs:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
 
-      - name: Set up Gradle
+      # Per-OS/arch cache (setup-gradle keys include runner OS)
+      - name: Set up Gradle (cache)
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ env.GRADLE_CACHE_READ_ONLY }}
+          cache-cleanup: on-success
 
       - name: Generate macOS .icns
         run: |
@@ -186,8 +210,11 @@ jobs:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
 
-      - name: Set up Gradle
+      - name: Set up Gradle (cache)
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ env.GRADLE_CACHE_READ_ONLY }}
+          cache-cleanup: on-success
 
       - name: Install WiX Toolset
         shell: powershell
@@ -207,7 +234,6 @@ jobs:
               echo "WiX bin: $d"
             fi
           done
-          # candle.exe must resolve after PATH update on next step
 
       - name: Package MSI + fat jar
         shell: bash
