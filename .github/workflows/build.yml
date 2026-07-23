@@ -1,0 +1,268 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: "17"
+
+jobs:
+  test:
+    name: Test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :shared:allTests :desktop:test --stacktrace
+
+  windows:
+    name: Package Windows (PE)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install MinGW (cross PE linker)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            mingw-w64 binutils-mingw-w64-x86-64 g++-mingw-w64-x86-64
+
+      - name: Build single-file Windows exe
+        run: |
+          chmod +x gradlew scripts-kmp/*.sh
+          ./scripts-kmp/package-windows.sh
+
+      - name: Upload Windows PE
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-pe
+          path: |
+            dist-kmp-windows/cache-fix-gui-kmp.exe
+            dist-kmp-windows/README.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  # Separate DMGs per CPU: Intel (x64) on macos-13, Apple Silicon (arm64) on macos-14.
+  macos:
+    name: Package macOS (${{ matrix.arch }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13
+            arch: x64
+          - os: macos-14
+            arch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Host architecture
+        run: |
+          echo "matrix.arch=${{ matrix.arch }}"
+          uname -m
+          java -version || true
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate macOS .icns
+        run: |
+          chmod +x scripts-kmp/make-macos-icns.sh
+          ./scripts-kmp/make-macos-icns.sh
+
+      - name: Package DMG + fat jar
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon \
+            :desktop:packageReleaseDmg \
+            :desktop:fatJar \
+            --stacktrace
+
+      - name: Collect macOS artifacts
+        env:
+          ARCH: ${{ matrix.arch }}
+          RUNNER_OS_LABEL: ${{ matrix.os }}
+        run: |
+          mkdir -p dist-macos
+          find desktop/build/compose/binaries -type f \( -name '*.dmg' -o -name '*.app' \) 2>/dev/null | head -50 || true
+          shopt -s nullglob
+          n=0
+          for f in desktop/build/compose/binaries/**/*.dmg; do
+            base="$(basename "$f" .dmg)"
+            # Avoid release-name collisions across matrix legs
+            dest="dist-macos/${base}-${ARCH}.dmg"
+            cp -v "$f" "$dest"
+            n=$((n + 1))
+          done
+          if [[ "$n" -eq 0 ]]; then
+            echo "ERROR: no DMG produced for arch=${ARCH}" >&2
+            exit 1
+          fi
+          # Fat jar includes host Skiko natives — keep arch in the name
+          if [[ -f desktop/build/libs/cache-fix-gui-kmp-all.jar ]]; then
+            cp -v desktop/build/libs/cache-fix-gui-kmp-all.jar \
+              "dist-macos/cache-fix-gui-kmp-${ARCH}-all.jar"
+          fi
+          {
+            echo "cache-fix-gui macOS (${ARCH})"
+            echo "=============================="
+            echo "Runner: ${RUNNER_OS_LABEL}"
+            echo "Host uname: $(uname -m)"
+            echo ""
+            echo "Install the matching DMG for your Mac:"
+            echo "  - x64   → Intel Mac"
+            echo "  - arm64 → Apple Silicon (M1/M2/M3/M4…)"
+            echo ""
+            echo "Built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > "dist-macos/README-${ARCH}.txt"
+          ls -la dist-macos
+
+      - name: Upload macOS package (${{ matrix.arch }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg-${{ matrix.arch }}
+          path: dist-macos/
+          if-no-files-found: error
+          retention-days: 30
+
+  # Optional native Windows MSI (WiX) in addition to the single-file PE.
+  windows-msi:
+    name: Package Windows (MSI)
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install WiX Toolset
+        shell: powershell
+        run: choco install wixtoolset -y --no-progress
+
+      - name: Add WiX to PATH
+        shell: bash
+        run: |
+          for d in \
+            "/c/Program Files (x86)/WiX Toolset v3.14/bin" \
+            "/c/Program Files (x86)/WiX Toolset v3.11/bin" \
+            "/c/Program Files/WiX Toolset v3.14/bin" \
+            "/c/Program Files/WiX Toolset v3.11/bin"
+          do
+            if [[ -d "$d" ]]; then
+              echo "$d" >> "$GITHUB_PATH"
+              echo "WiX bin: $d"
+            fi
+          done
+          # candle.exe must resolve after PATH update on next step
+
+      - name: Package MSI + fat jar
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon \
+            :desktop:packageReleaseMsi \
+            :desktop:fatJar \
+            --stacktrace
+
+      - name: Collect Windows MSI artifacts
+        shell: bash
+        run: |
+          mkdir -p dist-windows-msi
+          find desktop/build/compose/binaries -type f -name '*.msi' 2>/dev/null || true
+          shopt -s nullglob
+          for f in desktop/build/compose/binaries/**/*.msi; do
+            cp -v "$f" dist-windows-msi/
+          done
+          for f in desktop/build/libs/cache-fix-gui-kmp-all.jar; do
+            [[ -f "$f" ]] && cp -v "$f" dist-windows-msi/
+          done
+          ls -la dist-windows-msi
+          compgen -G 'dist-windows-msi/*.msi' >/dev/null
+
+      - name: Upload Windows MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-msi
+          path: dist-windows-msi/
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Attach release assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos, windows-msi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten for release
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.exe' -o -name '*.dmg' -o -name '*.msi' -o -name '*.jar' -o -name 'README.txt' \) \
+            -exec cp -v {} release/ \;
+          ls -la release
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

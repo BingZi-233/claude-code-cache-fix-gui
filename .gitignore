@@ -1,8 +1,28 @@
-node_modules/
-ui-src/node_modules/
 .cache/
-src-tauri/target/
-dist-tauri/
-dist-windows/
 *.log
 .superpowers/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+out/
+hs_err_pid*
+
+# Kotlin Multiplatform / Gradle
+.gradle/
+.kotlin/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+local.properties
+*.iml
+.idea/
+
+# KMP packaging output
+dist-kmp-windows/
+dist-macos/
+dist-windows-msi/
+
+# Generated on macOS packaging (CI / make-macos-icns.sh)
+desktop/src/main/resources/app-icon.icns

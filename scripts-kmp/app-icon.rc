@@ -1,0 +1,2 @@
+// Windows PE application icon (original Tauri brand icon)
+IDI_ICON1 ICON "app-icon.ico"

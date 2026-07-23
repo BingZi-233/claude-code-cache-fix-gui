@@ -3,56 +3,92 @@
 Desktop control panel for [claude-code-cache-fix](https://github.com/cnighswonger/claude-code-cache-fix).
 
 **Future GitHub:** `BingZi-233/claude-code-cache-fix-gui`  
-**Stack:** Node control plane (unit-tested) + local web panel + Tauri 2 shell (Windows / macOS)
+**Stack:** Kotlin Multiplatform + Compose Multiplatform Desktop
+
+## Overview
+
+Gradle multiplatform project:
+
+| Module | Role |
+|--------|------|
+| `shared/` | Domain logic (config, wire/unwire, health, discovery, spawn env) |
+| `desktop/` | Compose Desktop UI + CLI entry + fat JAR packaging |
+| `scripts-kmp/` | Windows single-file PE packaging |
+
+## Build & test
+
+```bash
+# JDK 17+
+./gradlew :shared:allTests :desktop:test :desktop:fatJar
+
+# Compose Desktop GUI (default)
+./gradlew :desktop:run
+java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar gui
+
+# CLI
+java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar status
+java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar start|stop|wire|unwire
+
+# Optional: local HTTP API panel (JSON + optional static UI dir)
+java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar serve
+```
+
+Compose UI covers: start/stop/restart, save config, proxy env form, discover,
+wire/unwire Claude, env preview, status metrics, log tail, **设置页**, **系统托盘**
+（关闭窗口可隐藏到托盘；Windows 单文件 exe 为 GUI 子系统，无 CMD 黑窗）。
+
+## CI (GitHub Actions)
+
+Workflow: [`.github/workflows/build.yml`](.github/workflows/build.yml)
+
+| Job | Runner | Artifact |
+|-----|--------|----------|
+| `windows` | Ubuntu + MinGW | `cache-fix-gui-kmp.exe` (single-file PE) |
+| `windows-msi` | Windows + WiX | `.msi` installer |
+| `macos` (x64) | `macos-13` (Intel) | `macos-dmg-x64` — `*-x64.dmg` |
+| `macos` (arm64) | `macos-14` (Apple Silicon) | `macos-dmg-arm64` — `*-arm64.dmg` |
+
+Triggers: `push` / `pull_request` to `main`, tags `v*`, and manual `workflow_dispatch`.  
+Tag `v*` also attaches artifacts to a GitHub Release.
+
+## Windows 单文件 exe
+
+```bash
+./scripts-kmp/package-windows.sh
+# → dist-kmp-windows/cache-fix-gui-kmp.exe   （唯一交付物：PE + 内嵌 jar）
+```
+
+Windows 上（需 Java 17+ 在 PATH / JAVA_HOME，或旁路 `runtime\bin\java.exe`）：
+
+- **双击** `cache-fix-gui-kmp.exe` → Compose GUI  
+- 或命令行：`cache-fix-gui-kmp.exe status`  
+
+无 bat、无旁路 jar；首次运行解压到 `%LOCALAPPDATA%\cache-fix-gui-kmp\`。
+
+Shared pure domain lives under `shared/src/commonMain` and is unit-tested in `commonTest` / `jvmTest`.
 
 ## What it does
 
 | Feature | Status |
 |---------|--------|
-| Start / stop cache-fix proxy | ✅ Node controller |
+| Start / stop cache-fix proxy | ✅ KMP JVM controller |
 | Hybrid discovery (PATH → npm → sibling checkout → sidecar) | ✅ |
 | Reverse + forward proxy modes | ✅ |
-| Full proxy env UI (Upstream 置顶 + 企业网络 + 扩展 + 高级 KEY=value) | ✅ 持久化到 `~/.cache-fix-gui/state.json` `proxyEnv` |
+| Full proxy env UI (Upstream 置顶 + 企业网络 + 扩展 + 高级 KEY=value) | ✅ Compose Desktop |
 | Wire / unwire Claude global `settings.json` `env` | ✅ (`CLAUDE_CONFIG_DIR` honored) |
-| Local control panel UI | ✅ Vite + React + shadcn/ui → `ui/` (`http://127.0.0.1:19801`) |
+| Compose Desktop control panel | ✅ |
 | Does **not** launch Claude CLI | ✅ by design |
-| Tauri tray shell | ✅ scaffold (`src-tauri/`) — build on Windows/macOS |
-| Full tray icons / signed installers | ⏳ next |
+| Windows PE package (`dist-kmp-windows/`) | ✅ launcher + fat jar |
+| System tray (hide on close) | ✅ |
 
-## Quick start (works today on any OS with Node 18+)
-
-```bash
-cd claude-code-cache-fix-gui
-npm test          # pure logic + I/O tests
-npm run ui:build  # build React panel into ui/ (first time / after UI changes)
-npm start         # opens control panel in browser
-```
-
-UI development (hot reload; proxy `/api` → panel on :19801):
-
-```bash
-npm run panel:no-open   # terminal 1: API
-npm run ui:dev          # terminal 2: Vite on :5173
-```
-
-CLI:
-
-```bash
-node bin/cache-fix-gui.mjs status
-node bin/cache-fix-gui.mjs start --port 9801 --mode reverse
-node bin/cache-fix-gui.mjs wire      # write ~/.claude/settings.json env
-node bin/cache-fix-gui.mjs unwire
-node bin/cache-fix-gui.mjs stop
-```
-
-### Claude config
+## Claude config
 
 - Global only: `{CLAUDE_CONFIG_DIR||~/.claude}/settings.json`
 - Reverse: sets `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`
 - Forward: sets `HTTPS_PROXY` + `NODE_EXTRA_CA_CERTS` (+ `NO_PROXY` localhost merge); snapshots prior `ANTHROPIC_BASE_URL`
 - Never starts `claude`
 
-### Proxy discovery order
+## Proxy discovery order
 
 1. Explicit path (app state)
 2. `cache-fix-proxy` on `PATH`
@@ -61,45 +97,14 @@ node bin/cache-fix-gui.mjs stop
 
 Compatible range: `>=4.3.0 <5`.
 
-## Tauri 2 (native window + tray)
+## Layout
 
-Scaffold lives in `src-tauri/`. Webview loads `ui/`. Tray: open panel / quit. Closing the window hides to tray.
-
-### Docker build (no host sudo; recommended on this machine)
-
-Installs WebKitGTK **inside the image**, compiles release binary + `.deb`:
-
-```bash
-./scripts/docker-build-tauri.sh
-# or:
-docker build -f Dockerfile.tauri -t cache-fix-gui-tauri-build:local .
-mkdir -p dist-tauri && cid=$(docker create cache-fix-gui-tauri-build:local) \
-  && docker cp "$cid:/out/." dist-tauri/ && docker rm "$cid"
 ```
-
-Artifacts land in `dist-tauri/`:
-
-- `cache-fix-gui` — Linux amd64 binary (~7.7 MB)
-- `cache-fix-gui_0.1.0_amd64.deb` — deb package
-
-Host runtime still needs WebKitGTK libs to **run** the binary (Ubuntu):
-
-```bash
-sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1
-./dist-tauri/cache-fix-gui
-# or: sudo dpkg -i dist-tauri/cache-fix-gui_0.1.0_amd64.deb
-```
-
-### Native build (Windows / macOS / Linux with deps)
-
-```bash
-# Linux system deps (Ubuntu/Debian)
-sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
-  libayatana-appindicator3-dev librsvg2-dev patchelf
-
-cargo install tauri-cli --version "^2" --locked
-cd src-tauri && cargo tauri build --bundles deb   # Linux
-# Windows/macOS: cargo tauri build
+shared/          KMP domain (commonMain + jvmMain)
+desktop/         Compose Desktop UI + fatJar / CLI
+scripts-kmp/     Windows PE packaging
+gradle/          Gradle wrapper
+docs/            design notes & process log
 ```
 
 ## Design & reviews
@@ -107,18 +112,6 @@ cd src-tauri && cargo tauri build --bundles deb   # Linux
 - [docs/design/2026-07-22-gui-design.md](docs/design/2026-07-22-gui-design.md)
 - [docs/reviews/](docs/reviews/)
 - [docs/process-log.md](docs/process-log.md)
-
-## Layout
-
-```
-bin/cache-fix-gui.mjs   CLI + panel launcher
-src/                     pure logic + controller + panel server
-ui-src/                  Vite + React + shadcn/ui source
-ui/                      built static panel (served by panel-server / Tauri)
-src-tauri/               Tauri 2 shell (tray + window)
-test/                    node:test suite
-sidecar/                 optional bundled cache-fix tree
-```
 
 ## License
 
