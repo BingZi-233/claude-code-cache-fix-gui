@@ -1,118 +1,112 @@
 # claude-code-cache-fix-gui
 
+[中文文档](README.zh-CN.md)
+
 Desktop control panel for [claude-code-cache-fix](https://github.com/cnighswonger/claude-code-cache-fix).
 
-**Future GitHub:** `BingZi-233/claude-code-cache-fix-gui`  
-**Stack:** Kotlin Multiplatform + Compose Multiplatform Desktop
+**Repo:** [BingZi-233/claude-code-cache-fix-gui](https://github.com/BingZi-233/claude-code-cache-fix-gui)  
+**Stack:** Kotlin Multiplatform + Compose Desktop  
+**License:** MIT
 
-## Overview
+## What is this?
 
-Gradle multiplatform project:
+A **native desktop app** that starts and manages the [claude-code-cache-fix](https://github.com/cnighswonger/claude-code-cache-fix) local proxy, and **wires Claude Code’s global config** so requests go through that proxy — without memorizing shell commands.
 
-| Module | Role |
-|--------|------|
-| `shared/` | Domain logic (config, wire/unwire, health, discovery, spawn env) |
-| `desktop/` | Compose Desktop UI + CLI entry + fat JAR packaging |
-| `scripts-kmp/` | Windows single-file PE packaging |
+It does **not** launch the Claude CLI. You still open Claude yourself; this app only owns the proxy and `settings.json` env wiring.
 
-## Build & test
+## Features
+
+### Proxy lifecycle
+
+- **Start / Stop / Restart** the cache-fix proxy process
+- Live **phase & health** status (running, stopped, errors)
+- **Log tail** for quick troubleshooting
+- Optional **auto-install** of `claude-code-cache-fix` via npm when the package is missing
+
+### Wire Claude Code
+
+- **Wire / Unwire** global Claude config: `{CLAUDE_CONFIG_DIR||~/.claude}/settings.json` → `env`
+- **Reverse mode:** set `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`
+- **Forward mode:** set `HTTPS_PROXY` + `NODE_EXTRA_CA_CERTS`, merge localhost into `NO_PROXY`, snapshot prior `ANTHROPIC_BASE_URL`
+- Respects **`CLAUDE_CONFIG_DIR`**
+- Start can auto-wire; stop / quit can restore prior env (controller lifecycle)
+
+### Proxy configuration UI
+
+- Port, bind address, reverse / forward **mode**
+- **Upstream** settings (primary)
+- Enterprise / network options, extensions, and **advanced KEY=value** env editor
+- Save config, **preview wire env** before applying
+- Debug toggle and related proxy env knobs
+
+### Discovery
+
+Hybrid resolution of the proxy binary / package, in order:
+
+1. Explicit path (saved in app state)
+2. `cache-fix-proxy` on `PATH`
+3. npm global install / sibling checkout
+4. Optional embedded `sidecar/claude-code-cache-fix`
+
+Compatible upstream range: **`>=4.3.0 <5`**.
+
+### Desktop UX
+
+- **Compose Desktop** control panel (console + settings pages)
+- **System tray** — close window to hide; restore from tray
+- Options: close-to-tray, start minimized to tray
+- Windows single-file **GUI subsystem** PE (no black CMD window)
+- Optional CLI: `status` / `start` / `stop` / `wire` / `unwire` / `discover`
+
+## Downloads
+
+See [Releases](https://github.com/BingZi-233/claude-code-cache-fix-gui/releases):
+
+| Asset | Platform |
+|-------|----------|
+| `cache-fix-gui-kmp.exe` | Windows single-file PE (recommended) |
+| `*.msi` | Windows installer |
+| `*-x64.dmg` | macOS **Intel** |
+| `*-arm64.dmg` | macOS **Apple Silicon** |
+
+Packages are **unsigned**; the OS may show a first-run security prompt.  
+Windows PE needs **Java 17+** on `PATH` / `JAVA_HOME` (or a side-by-side runtime).
+
+## Quick start
+
+1. Install a compatible [claude-code-cache-fix](https://github.com/cnighswonger/claude-code-cache-fix) (or let the app try npm install).
+2. Download the build for your OS from Releases.
+3. Open the app → configure port / mode / upstream → **Start**.
+4. Use **Wire** (or auto-wire on start) so Claude Code picks up the proxy env.
+5. Start Claude Code as usual.
+
+## Build from source
 
 ```bash
 # JDK 17+
 ./gradlew :shared:allTests :desktop:test :desktop:fatJar
-
-# Compose Desktop GUI (default)
 ./gradlew :desktop:run
-java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar gui
 
-# CLI
-java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar status
-java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar start|stop|wire|unwire
-
-# Optional: local HTTP API panel (JSON + optional static UI dir)
-java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar serve
+# Windows single-file PE (needs MinGW on Linux/CI)
+./scripts-kmp/package-windows.sh
 ```
 
-Compose UI covers: start/stop/restart, save config, proxy env form, discover,
-wire/unwire Claude, env preview, status metrics, log tail, **设置页**, **系统托盘**
-（关闭窗口可隐藏到托盘；Windows 单文件 exe 为 GUI 子系统，无 CMD 黑窗）。
-
-## CI (GitHub Actions)
-
-Workflow: [`.github/workflows/build.yml`](.github/workflows/build.yml)
-
-| Job | Runner | Artifact |
-|-----|--------|----------|
-| `windows` | Ubuntu + MinGW | `cache-fix-gui-kmp.exe` (single-file PE) |
-| `windows-msi` | Windows + WiX | `.msi` installer |
-| `macos` (x64) | `macos-13` (Intel) | `macos-dmg-x64` — `*-x64.dmg` |
-| `macos` (arm64) | `macos-14` (Apple Silicon) | `macos-dmg-arm64` — `*-arm64.dmg` |
-
-Triggers: `push` / `pull_request` to `main`, tags `v*`, and manual `workflow_dispatch`.  
-Tag `v*` also attaches artifacts to a GitHub Release.
-
-## Windows 单文件 exe
+CLI examples:
 
 ```bash
-./scripts-kmp/package-windows.sh
-# → dist-kmp-windows/cache-fix-gui-kmp.exe   （唯一交付物：PE + 内嵌 jar）
+java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar status
+java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar start
+java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar wire
 ```
 
-Windows 上（需 Java 17+ 在 PATH / JAVA_HOME，或旁路 `runtime\bin\java.exe`）：
+CI builds Windows PE/MSI and macOS x64 + arm64 DMGs via [`.github/workflows/build.yml`](.github/workflows/build.yml).
 
-- **双击** `cache-fix-gui-kmp.exe` → Compose GUI  
-- 或命令行：`cache-fix-gui-kmp.exe status`  
-
-无 bat、无旁路 jar；首次运行解压到 `%LOCALAPPDATA%\cache-fix-gui-kmp\`。
-
-Shared pure domain lives under `shared/src/commonMain` and is unit-tested in `commonTest` / `jvmTest`.
-
-## What it does
-
-| Feature | Status |
-|---------|--------|
-| Start / stop cache-fix proxy | ✅ KMP JVM controller |
-| Hybrid discovery (PATH → npm → sibling checkout → sidecar) | ✅ |
-| Reverse + forward proxy modes | ✅ |
-| Full proxy env UI (Upstream 置顶 + 企业网络 + 扩展 + 高级 KEY=value) | ✅ Compose Desktop |
-| Wire / unwire Claude global `settings.json` `env` | ✅ (`CLAUDE_CONFIG_DIR` honored) |
-| Compose Desktop control panel | ✅ |
-| Does **not** launch Claude CLI | ✅ by design |
-| Windows PE package (`dist-kmp-windows/`) | ✅ launcher + fat jar |
-| System tray (hide on close) | ✅ |
-
-## Claude config
-
-- Global only: `{CLAUDE_CONFIG_DIR||~/.claude}/settings.json`
-- Reverse: sets `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`
-- Forward: sets `HTTPS_PROXY` + `NODE_EXTRA_CA_CERTS` (+ `NO_PROXY` localhost merge); snapshots prior `ANTHROPIC_BASE_URL`
-- Never starts `claude`
-
-## Proxy discovery order
-
-1. Explicit path (app state)
-2. `cache-fix-proxy` on `PATH`
-3. npm global / sibling `../claude-code-cache-fix` checkout
-4. Embedded `sidecar/claude-code-cache-fix` (optional)
-
-Compatible range: `>=4.3.0 <5`.
-
-## Layout
+## Project layout
 
 ```
-shared/          KMP domain (commonMain + jvmMain)
-desktop/         Compose Desktop UI + fatJar / CLI
-scripts-kmp/     Windows PE packaging
-gradle/          Gradle wrapper
-docs/            design notes & process log
+shared/          Domain logic (config, wire, health, discovery)
+desktop/         Compose Desktop UI + CLI
+scripts-kmp/     Windows PE packaging helpers
+.github/         CI workflows
+docs/            Design notes (historical)
 ```
-
-## Design & reviews
-
-- [docs/design/2026-07-22-gui-design.md](docs/design/2026-07-22-gui-design.md)
-- [docs/reviews/](docs/reviews/)
-- [docs/process-log.md](docs/process-log.md)
-
-## License
-
-MIT
