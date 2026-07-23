@@ -127,22 +127,24 @@ jobs:
           ARCH: ${{ matrix.arch }}
           RUNNER_OS_LABEL: ${{ matrix.os }}
         run: |
+          set -euo pipefail
           mkdir -p dist-macos
-          find desktop/build/compose/binaries -type f \( -name '*.dmg' -o -name '*.app' \) 2>/dev/null | head -50 || true
-          shopt -s nullglob
+          # Use find (not bash **): Compose writes main-release/dmg/*.dmg (2+ path levels)
+          # Avoid mapfile — macOS runners may ship Bash 3.2
           n=0
-          for f in desktop/build/compose/binaries/**/*.dmg; do
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            echo "Found DMG: $f"
             base="$(basename "$f" .dmg)"
-            # Avoid release-name collisions across matrix legs
             dest="dist-macos/${base}-${ARCH}.dmg"
             cp -v "$f" "$dest"
             n=$((n + 1))
-          done
+          done < <(find desktop/build/compose/binaries -type f -name '*.dmg' 2>/dev/null | sort)
           if [[ "$n" -eq 0 ]]; then
             echo "ERROR: no DMG produced for arch=${ARCH}" >&2
+            find desktop/build/compose/binaries -type f 2>/dev/null | head -100 || true
             exit 1
           fi
-          # Fat jar includes host Skiko natives — keep arch in the name
           if [[ -f desktop/build/libs/cache-fix-gui-kmp-all.jar ]]; then
             cp -v desktop/build/libs/cache-fix-gui-kmp-all.jar \
               "dist-macos/cache-fix-gui-kmp-${ARCH}-all.jar"
@@ -219,17 +221,25 @@ jobs:
       - name: Collect Windows MSI artifacts
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p dist-windows-msi
-          find desktop/build/compose/binaries -type f -name '*.msi' 2>/dev/null || true
-          shopt -s nullglob
-          for f in desktop/build/compose/binaries/**/*.msi; do
+          # Use find (not bash **): Compose writes main-release/msi/*.msi
+          n=0
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            echo "Found MSI: $f"
             cp -v "$f" dist-windows-msi/
-          done
-          for f in desktop/build/libs/cache-fix-gui-kmp-all.jar; do
-            [[ -f "$f" ]] && cp -v "$f" dist-windows-msi/
-          done
+            n=$((n + 1))
+          done < <(find desktop/build/compose/binaries -type f -name '*.msi' 2>/dev/null | sort)
+          if [[ "$n" -eq 0 ]]; then
+            echo "ERROR: no MSI produced" >&2
+            find desktop/build/compose/binaries -type f 2>/dev/null | head -100 || true
+            exit 1
+          fi
+          if [[ -f desktop/build/libs/cache-fix-gui-kmp-all.jar ]]; then
+            cp -v desktop/build/libs/cache-fix-gui-kmp-all.jar dist-windows-msi/
+          fi
           ls -la dist-windows-msi
-          compgen -G 'dist-windows-msi/*.msi' >/dev/null
 
       - name: Upload Windows MSI
         uses: actions/upload-artifact@v4
@@ -255,9 +265,17 @@ jobs:
       - name: Flatten for release
         run: |
           mkdir -p release
-          find artifacts -type f \( -name '*.exe' -o -name '*.dmg' -o -name '*.msi' -o -name '*.jar' -o -name 'README.txt' \) \
-            -exec cp -v {} release/ \;
+          find artifacts -type f \( \
+            -name '*.exe' -o -name '*.dmg' -o -name '*.msi' -o -name '*.jar' \
+            -o -name 'README.txt' -o -name 'README-*.txt' \
+          \) -exec cp -v {} release/ \;
           ls -la release
+          # Require at least one platform binary
+          if ! find release -type f \( -name '*.exe' -o -name '*.dmg' -o -name '*.msi' \) | grep -q .; then
+            echo "ERROR: no release binaries found under artifacts/" >&2
+            find artifacts -type f | head -100 || true
+            exit 1
+          fi
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
