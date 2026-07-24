@@ -97,7 +97,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # Separate DMGs per CPU: Intel (x64) on macos-13, Apple Silicon (arm64) on macos-14.
+  # Apple Silicon (arm64) DMG on macos-14. Intel (x64) build dropped.
   macos:
     name: Package macOS (${{ matrix.arch }})
     needs: test
@@ -106,8 +106,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-13
-            arch: x64
           - os: macos-14
             arch: arm64
     steps:
