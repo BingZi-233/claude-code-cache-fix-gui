@@ -638,6 +638,11 @@ object Controller {
             phase = "Stopped"
             return getStatus()
         }
+        // Forward mode needs openssl to mint the MITM CA; without it the proxy
+        // never sets forward_proxy=true and start would silently time out (25s).
+        if (mode == ProxyMode.FORWARD && !Files.isRegularFile(caPemPath)) {
+            preflightOpensslOrThrow()
+        }
         val spawnEnv = buildProxySpawnEnv(
             port = port,
             mode = mode,
@@ -1207,6 +1212,24 @@ object Controller {
             }
         }
         return result.output
+    }
+
+    /**
+     * Forward preflight: fail fast with an actionable message when openssl is
+     * absent, instead of letting the 25s health wait expire on a missing ca.pem.
+     */
+    private fun preflightOpensslOrThrow() {
+        if (which("openssl") != null) return
+        val hint = if (isWindows()) {
+            "请安装 openssl 并加入 PATH（如 winget install ShiningLight.OpenSSL 或 Git for Windows 自带的 openssl.exe），或改用「反向」模式。"
+        } else {
+            "请安装 openssl（macOS: brew install openssl；Linux: apt/dnf install openssl），或改用「反向」模式。"
+        }
+        val msg = "正向模式需要 openssl 生成 CA，但 PATH 未找到 openssl。$hint"
+        phase = "Error"
+        lastError = msg
+        appendLog(msg)
+        throw IllegalStateException(msg)
     }
 
     private fun which(cmd: String): String? {
