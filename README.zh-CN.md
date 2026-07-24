@@ -65,9 +65,10 @@
 | 产物 | 平台 |
 |------|------|
 | `cache-fix-gui-kmp.exe` | Windows 单文件 PE（推荐） |
-| `*.msi` | Windows 安装包 |
-| `*-x64.dmg` | macOS **Intel** |
+| `*.msi` | Windows 安装包（含开始菜单项 + 桌面快捷方式） |
 | `*-arm64.dmg` | macOS **Apple Silicon** |
+
+macOS **Intel（x64）** 不再发布；Intel Mac 请从源码或 fat jar 运行。
 
 安装包 **未签名**，系统可能提示“未知开发者”。  
 Windows PE 需要本机 **Java 17+**（`PATH` / `JAVA_HOME`，或旁路 runtime）。
@@ -99,7 +100,7 @@ java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar start
 java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar wire
 ```
 
-CI 通过 [`.github/workflows/build.yml`](.github/workflows/build.yml) 构建 Windows PE/MSI 与 macOS x64、arm64 DMG。
+CI 通过 [`.github/workflows/build.yml`](.github/workflows/build.yml) 构建 Windows PE/MSI 与 macOS arm64 DMG。
 
 ## 项目结构
 

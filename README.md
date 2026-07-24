@@ -65,9 +65,10 @@ See [Releases](https://github.com/BingZi-233/claude-code-cache-fix-gui/releases)
 | Asset | Platform |
 |-------|----------|
 | `cache-fix-gui-kmp.exe` | Windows single-file PE (recommended) |
-| `*.msi` | Windows installer |
-| `*-x64.dmg` | macOS **Intel** |
+| `*.msi` | Windows installer (adds Start Menu entry + desktop shortcut) |
 | `*-arm64.dmg` | macOS **Apple Silicon** |
+
+macOS **Intel (x64)** builds are no longer shipped; on Intel Macs run from source or the fat jar.
 
 Packages are **unsigned**; the OS may show a first-run security prompt.  
 Windows PE needs **Java 17+** on `PATH` / `JAVA_HOME` (or a side-by-side runtime).
@@ -99,7 +100,7 @@ java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar start
 java -jar desktop/build/libs/cache-fix-gui-kmp-all.jar wire
 ```
 
-CI builds Windows PE/MSI and macOS x64 + arm64 DMGs via [`.github/workflows/build.yml`](.github/workflows/build.yml).
+CI builds Windows PE/MSI and macOS arm64 DMG via [`.github/workflows/build.yml`](.github/workflows/build.yml).
 
 ## Project layout
 
